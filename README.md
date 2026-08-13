@@ -1,0 +1,43 @@
+# contract — 建築士事務所向け 電子契約システム
+
+建築士事務所の業務委託契約（設計・工事監理・調査・検査・耐震診断など）を、
+見積提示から電子契約締結・決済までオンラインで完結させるシステム。
+
+## なぜ作るか
+
+2026年7月24日に成立した改正建築士法により、**書面契約義務の面積要件（延べ面積300㎡超）が撤廃され、
+建築士が行うすべての設計受託契約・工事監理受託契約が書面契約の対象**となる。
+この契約適正化に関する規定は**公布から1年以内**に施行される。
+あわせて、建築士事務所の開設者に**報酬の根拠を明らかにする見積書の作成**が新たに義務付けられる。
+
+小規模案件（住宅など300㎡以下）を含む全案件で法定記載事項を満たした契約書面を作成・交付する必要があり、
+紙の運用では回らない。施行までに電子契約フローを実務に定着させることが本プロジェクトの目的。
+
+## ドキュメント
+
+| 文書 | 内容 |
+| --- | --- |
+| [docs/01-legal-requirements.md](docs/01-legal-requirements.md) | 建築士法上の法定記載事項・重要事項説明・電磁的方法の要件（条文ベース） |
+| [docs/02-business-flow.md](docs/02-business-flow.md) | 見積依頼〜締結〜決済の業務フローと画面設計 |
+| [docs/03-architecture.md](docs/03-architecture.md) | システム構成、データモデル、ストレージ方針、セキュリティ |
+| [docs/04-external-services.md](docs/04-external-services.md) | マネーフォワード / Stripe / Clerk の調査結果と未確定事項 |
+| [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md) | コード規約 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | ロードマップ |
+| [docs/adr/](docs/adr/) | アーキテクチャ決定記録（ADR） |
+
+## 技術スタック（想定）
+
+- バックエンド: TypeScript / Node.js / Hono → Google Cloud Run
+- フロントエンド: TypeScript / React / Vite → Firebase Hosting
+- DB: Cloud SQL (PostgreSQL)
+- オブジェクトストレージ: Cloud Storage
+- 認証: Clerk（社内ユーザーのみ。発注者は署名付きリンクでアクセス）
+- 電子契約: マネーフォワード クラウド契約
+- 決済: Stripe
+- 見積・請求: マネーフォワード クラウド請求書 API v3
+
+## ステータス
+
+設計フェーズ。実装コードはまだ存在しない。
+</content>
+</invoke>
