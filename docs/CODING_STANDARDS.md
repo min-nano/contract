@@ -275,4 +275,3 @@ feat(contract): 法定記載事項の検証を追加
 - 法令の解釈に関わる判断は、必ず `docs/01-legal-requirements.md` に反映してからコードを書く。
 - 法改正・省令公布のたびに `docs/01-legal-requirements.md` を再検証し、
   差分を ADR とマイグレーション計画に落とす。
-</content>
