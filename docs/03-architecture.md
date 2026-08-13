@@ -79,9 +79,12 @@ Document（資料・成果物）
  └─ received_at, uploaded_by
 
 ContractType（契約種別マスタ）
- ├─ code: design | construction_supervision | inspection | seismic_diagnosis | other
- ├─ requires_kenchikushiho_form（法22条の3の3の適用有無）
- ├─ requires_important_matters（法24条の7の適用有無）
+ ├─ code: design | construction_supervision | seismic_diagnosis
+ │        | seismic_retrofit_design | inspection | procedure_agency | other
+ ├─ requires_mutual_delivery（法22条の3の3の適用有無。義務 → 締結をブロックする）
+ ├─ requires_important_matters（法24条の7の適用有無。義務 → 締結をブロックする）
+ ├─ recommends_quote（法24条の10の対象か。努力義務 → 警告のみ。ブロックしない）
+ ├─ fee_standard: kokuji8 | kokuji670 | none（適用する業務報酬基準）
  ├─ template_id
  └─ input_schema（Zodスキーマ識別子）
 
@@ -125,11 +128,34 @@ ContractEvent（監査証跡・追記専用）
 
 ### 法定必須項目のバリデーション
 
-`requires_kenchikushiho_form = true` の契約種別では、
+`requires_mutual_delivery = true` の契約種別では、
 [01-legal-requirements.md §2](01-legal-requirements.md) の項目を**サーバ側で必須検証**する。
 重説書面は必須項目セットが異なる（規則17条の38の1号〜6号のみ）ため、
 `contractFormSchema` と `importantMattersSchema` を**別のZodスキーマとして定義**し、
 共通部分のみ合成する。
+
+**3つのフラグは強制の強さが違う。混ぜないこと**（→ [01-legal-requirements.md §5](01-legal-requirements.md)）。
+
+| フラグ | 根拠 | 違反時の扱い |
+| --- | --- | --- |
+| `requires_mutual_delivery` | 法22条の3の3（義務・監督処分あり） | **409 を返して締結を止める** |
+| `requires_important_matters` | 法24条の7（義務・監督処分あり） | **409 を返して締結を止める** |
+| `recommends_quote` | 法24条の10（努力義務・監督処分なし） | **止めない。** 警告を返して続行できる |
+
+3つのフラグの対象範囲は一致しない。とくに `recommends_quote` は
+書面契約義務が及ばない調査・耐震診断にも立つ。「だいたい同じだから」で1つに畳まない。
+
+### 報酬算定は業務報酬基準の告示ごとに分ける
+
+`fee_standard` で選択する。告示第8号と告示第670号は**費目の構成が違う**
+（第670号には検査費がある）ため、1つの計算器に押し込めない。
+→ [01-legal-requirements.md §1.7](01-legal-requirements.md)
+
+### 適用法令バージョン
+
+改正法附則第4条により、法22条の3の3は**施行日以後に締結される契約**に適用される。
+`Contract` は締結日を保持し、そこから適用法令バージョン（改正前／改正後）を判定する。
+施行日をまたぐ案件があるため、この判定をハードコードした定数で分岐させない。
 
 ## 4. ストレージ方針 — Google Drive を使うべきか
 
