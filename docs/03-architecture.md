@@ -63,13 +63,17 @@
 契約種別ごとの差異を型で表現し、汎用性を持たせる。
 
 ```
-Client（発注者）
+Client（契約の相手方）
  ├─ id, kind(individual|corporation), name, kana, address, email, tel
- └─ is_consumer（消費者契約法・特商法の適用判定に使う）
+ ├─ is_consumer（消費者契約法・特商法の適用判定に使う）
+ └─ is_building_owner（建築主か。法24条の7の適用判定に使う。
+     元請け設計事務所からの受託など、相手方が建築主でない場合は false）
 
 Project（案件）
  ├─ id, client_id, name
  ├─ building（建物の概要：用途、構造、規模、階数、延べ面積、所在地、工事種別）
+ │    ※ 延べ面積は法24条の3第2項（一括再委託の禁止／300㎡超の新築工事）の判定に使う。
+ │      法22条の3の3の適用判定には使わない（改正で面積要件が撤廃されるため）
  └─ documents[]（受領資料）
 
 Document（資料・成果物）
@@ -82,7 +86,8 @@ ContractType（契約種別マスタ）
  ├─ code: design | construction_supervision | seismic_diagnosis
  │        | seismic_retrofit_design | inspection | procedure_agency | other
  ├─ requires_mutual_delivery（法22条の3の3の適用有無。義務 → 締結をブロックする）
- ├─ requires_important_matters（法24条の7の適用有無。義務 → 締結をブロックする）
+ ├─ may_require_important_matters（法24条の7の適用「候補」。
+ │    実際の要否は Client.is_building_owner と合わせて判定する。マスタだけでは決まらない）
  ├─ recommends_quote（法24条の10の対象か。努力義務 → 警告のみ。ブロックしない）
  ├─ fee_standard: kokuji8 | kokuji670 | none（適用する業務報酬基準）
  ├─ template_id
@@ -134,15 +139,34 @@ ContractEvent（監査証跡・追記専用）
 `contractFormSchema` と `importantMattersSchema` を**別のZodスキーマとして定義**し、
 共通部分のみ合成する。
 
-**3つのフラグは強制の強さが違う。混ぜないこと**（→ [01-legal-requirements.md §5](01-legal-requirements.md)）。
+**3つの義務は強制の強さも適用条件も違う。混ぜないこと**（→ [01-legal-requirements.md §5](01-legal-requirements.md)）。
 
-| フラグ | 根拠 | 違反時の扱い |
-| --- | --- | --- |
-| `requires_mutual_delivery` | 法22条の3の3（義務・監督処分あり） | **409 を返して締結を止める** |
-| `requires_important_matters` | 法24条の7（義務・監督処分あり） | **409 を返して締結を止める** |
-| `recommends_quote` | 法24条の10（努力義務・監督処分なし） | **止めない。** 警告を返して続行できる |
+| 義務 | 根拠 | 適用条件 | 違反時の扱い |
+| --- | --- | --- | --- |
+| 書面の相互交付 | 法22条の3の3（義務・監督処分あり） | `ContractType.requires_mutual_delivery` | **409 を返して締結を止める** |
+| 重要事項説明 | 法24条の7（義務・監督処分あり） | `may_require_important_matters` **かつ** `Client.is_building_owner` | **409 を返して締結を止める** |
+| 見積書 | 法24条の10（努力義務・監督処分なし） | `ContractType.recommends_quote` | **止めない。** 警告を返して続行できる |
 
-3つのフラグの対象範囲は一致しない。とくに `recommends_quote` は
+**重要事項説明の要否は契約種別だけでは決まらない。** 法24条の7第1項は
+「設計受託契約又は工事監理受託契約を**建築主と**締結しようとするとき」と定めており、
+元請け設計事務所からの受託など**相手方が建築主でない場合には適用がない**。
+一方、書面の相互交付（22条の3の3）は「当事者は」であり建築主に限られないため、
+この2つを同じフラグで扱うと誤る。
+
+```ts
+/** 重要事項説明の要否（法24条の7第1項: 「建築主と締結しようとするとき」） */
+export function requiresImportantMattersExplanation(
+  type: ContractType,
+  counterparty: { isBuildingOwner: boolean },
+): boolean {
+  return type.mayRequireImportantMatters && counterparty.isBuildingOwner
+}
+```
+
+建築主でない相手にも重説相当の説明を任意で行うのは差し支えないが、
+**締結のブロック条件にしてはならない**（義務がない以上、止める根拠がない）。
+
+3つの対象範囲は一致しない。とくに `recommends_quote` は
 書面契約義務が及ばない調査・耐震診断にも立つ。「だいたい同じだから」で1つに畳まない。
 
 ### 報酬算定は業務報酬基準の告示ごとに分ける
@@ -150,6 +174,25 @@ ContractEvent（監査証跡・追記専用）
 `fee_standard` で選択する。告示第8号と告示第670号は**費目の構成が違う**
 （第670号には検査費がある）ため、1つの計算器に押し込めない。
 → [01-legal-requirements.md §1.7](01-legal-requirements.md)
+
+### 再委託（法24条の3）
+
+再委託先を契約書に記載する場合（規則17条の38第6号）、次を持たせる。
+
+```
+Subcontract（再委託）
+ ├─ id, contract_id, scope（委託する業務の概要）
+ ├─ contractor_name, office_name, office_address
+ ├─ is_registered_office（相手が建築士事務所の開設者か。**法24条の3第1項により必須**）
+ └─ acknowledged_not_wholesale（300㎡超の新築工事で一括再委託でないことの確認。法24条の3第2項）
+```
+
+- 法24条の3第1項は**委託者の許諾があっても**建築士事務所の開設者以外への再委託を禁じる。
+  `is_registered_office = false` は登録できないようにする。
+- 同2項の一括再委託の禁止は**延べ面積300㎡超の新築工事に限る**。
+  「一括」かどうかは業務範囲の実質で決まり自動判定できないため、該当条件のときに確認項目を出す
+  （ブロックはしない）。
+- → [01-legal-requirements.md §6](01-legal-requirements.md)
 
 ### 適用法令バージョン
 
