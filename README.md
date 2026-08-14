@@ -26,14 +26,14 @@
 | [docs/04-external-services.md](docs/04-external-services.md) | マネーフォワード / Stripe / Clerk の調査結果と未確定事項 |
 | [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md) | コード規約 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | ロードマップ |
-| [docs/adr/](docs/adr/) | アーキテクチャ決定記録（ADR） |
+| [docs/adr/](docs/adr/) | アーキテクチャ決定記録（ADR 0001〜0004） |
 
 ## 技術スタック（想定）
 
 - バックエンド: TypeScript / Node.js / Hono → Google Cloud Run
 - フロントエンド: TypeScript / React / Vite → Firebase Hosting
 - DB: Cloud SQL (PostgreSQL)
-- オブジェクトストレージ: Cloud Storage
+- オブジェクトストレージ: Cloud Storage（**契約書作成のための一時領域のみ**。永続保管はMFクラウド契約）
 - 認証: Clerk（社内ユーザーのみ。発注者は署名付きリンクでアクセス）
 - 電子契約: マネーフォワード クラウド契約 API v1
 - 決済: Stripe
