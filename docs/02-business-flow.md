@@ -160,30 +160,39 @@ MF請求書の明細行（`items`）にマッピングできる粒度で持つ�
 
 ### 2.6 ⑥ 署名依頼のトリガーと締結
 
-発注者が「署名を依頼する」を押すと、クラウド契約 API v1 で次の順に実行する
+発注者が「署名を依頼する」を押すと、クラウド契約 API v2 で次の順に実行する
 （→ [04-external-services.md §1](04-external-services.md)、[adr/0002](adr/0002-esign-provider-abstraction.md)）。
+
+> **⚠ 未検証。** v2 には有効なトークンでも到達できていない（403。→ 04-external-services.md §1.3）。
+> 下記は仕様書に基づく想定であり、実挙動は Phase 0-1b で確認する。
+> 到達できない間は `ManualMoneyForwardProvider`（事務所側の手作業）で運用する。
+> **発注者から見た体験は変わらない。**
 
 | # | 呼び出し | 内容 |
 | --- | --- | --- |
-| 1 | `POST /contracts` | 下書き契約を作成（`contract_type_id`, `name`, `person_in_charge_id`, `workflow_template_id` が必須） |
-| 2 | `POST /contracts/{id}/documents` | **契約書PDFをアップロード**。受領図面は別紙として契約書PDFに結合済み |
-| 3 | `PUT /contracts/{id}/fields` | **契約情報を保存（必須）**。契約書名・契約開始日・終了日・契約金額の4項目は電帳法の要件を満たすために欠かせない |
-| 4 | `POST /contracts/{id}/partner_companies` | 相手方と承認者（氏名・メール・言語・**アクセスキー**）を登録 |
-| 5 | `POST /contracts/{id}/confirm` | **送信**。ここでMFから署名依頼メールが飛ぶ |
+| 1 | `POST /applications` | 申請を作成（事前にMF側でワークフローテンプレートの作成が必要） |
+| 2 | `POST /applications/{id}/contracts` | 申請に紐づく契約を作成 |
+| 3 | `PUT .../contracts/{cid}/document` | **契約書PDFをアップロード**。受領図面は別紙として契約書PDFに結合済み |
+| 4 | `PUT .../contracts/{cid}/fields` | **契約情報を保存（必須）**。契約書名・契約開始日・終了日・契約金額の4項目は電帳法の要件を満たすために欠かせない |
+| 5 | `PUT .../partner_companies`, `PUT .../partner_representatives` | 取引先企業と代表者（氏名・メール等）を登録 |
+| 6 | `POST /applications/{id}/submit` | **提出**。ここでMFから署名依頼メールが飛ぶ |
 
 - MFから発注者へ署名依頼メールが届き、MFの画面で署名する。
-  アクセスキーは自システムで発行し、契約画面に表示する（メールとは別経路で伝える）。
+  v1 では承認者に**アクセスキー**（契約内容確認用の追加認証）をAPIから渡せたが、
+  **v2 で同等の指定ができるかは未確認**（→ 04-external-services.md 未確定事項 #17）。
+  渡せる場合は自システムで発行し、メールとは別経路で発注者に伝える。
 - 事務所側も署名し、**相互交付**が成立する（法22条の3の3第1項）。
-- 署名が滞っている場合は `POST /contracts/{id}/remind` で催促する。
+- 署名が滞っている場合は `POST /applications/{id}/remind` で催促する。
   決済のオーソリ期限（約7日）が近い案件を優先的にリマインドする。
-- 締結完了は**ポーリングで検知**する（Webhook がないため）。
-  `GET /contracts/{id}/certificate` で合意締結証明書を取得できるかどうかで判定する。
-  この判定は回避策であり、実挙動の検証は Phase 0-1b で行う。
+- 締結完了は **Webhook で受信**する（`POST /webhooks` で登録）。
+  v1 にはWebhookも締結状況の取得手段もなく、合意締結証明書の取得可否で判定する回避策が必要だったが、
+  **v2 では `GET /contracts/{id}` で締結済み契約を直接取得できる**ため、この回避策は不要になる。
+  Webhook の署名検証方式と配信イベント種別は Phase 0-1b で確認する。
 - 締結完了後: `executed_at` と参照IDを記録、Stripe のオーソリを capture、
   発注者へ完了通知を送る。
-  **締結済契約書の永続保管はMF側**なので、自システムへ取り込んで保管はしない
-  （→ [adr/0004](adr/0004-delegate-retention-to-moneyforward.md)）。
-- 締結不成立・取下げ時は `POST /contracts/{id}/withdraw`（`comment` 必須）を呼び、
+  締結済契約書の永続保管をMF側に委ねるか自前でも退避するかは**再検討中**
+  （v2 の `GET /contracts/{id}/document` で本体を取得できるため。→ [adr/0004](adr/0004-delegate-retention-to-moneyforward.md)）。
+- 締結不成立・取下げ時は `POST /applications/{id}/withdraw` を呼び、
   Stripe のオーソリを cancel する。
 
 > **`fields` は必須処理。ただし法定記載事項とは別物。**

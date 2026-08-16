@@ -1,7 +1,10 @@
 # 外部サービス調査
 
-調査日: 2026-08-13。**一次情報が確認できた事実**と**未確定事項**を分けて記載する。
-未確定事項は Phase 0 で潰す。
+調査日: 2026-08-13、**2026-08-14 改訂**（クラウド契約 API v2 の発見と実挙動検証を反映）。
+**一次情報が確認できた事実**と**未確定事項**を分けて記載する。未確定事項は Phase 0 で潰す。
+
+> 記法: 【実測】は実際にリクエストを送って確認した挙動、【文書】は公式ドキュメントの記載。
+> 【文書】のうち実データで未確認のものは、その旨を明記する。
 
 ---
 
@@ -13,7 +16,6 @@
   - 電子署名・タイムスタンプ、**すべての電子契約に10年間の長期署名**
   - **合意締結証明書**の発行
   - **関連書類の添付**（契約締結に必要な補足書類を相手方に送付できる）
-    → ただし**これは画面上の機能**であり、APIに対応するエンドポイントは見当たらない（下記の制約4）
   - 多者間契約（3者以上）、複数契約の同時締結、一括送信
   - アクセスキー発行（契約内容確認用）
   - スマホからの確認・署名
@@ -22,90 +24,235 @@
 - 料金（[料金ページ](https://biz.moneyforward.com/contract/price/)より）
   - **契約書の送信件数・保管件数による従量課金や上限はない**。利用者数ベース＋初期費用。
   - 「ひとり法人プラン」「スモールビジネスプラン」「ビジネスプラン」では
-    **契約書の送信・締結のみ**が利用可能。ワークフロー等は別途問い合わせ。
+    **契約書の送信・締結のみ**が利用可能。
+  - **「社内申請ワークフローなど、その他の機能を利用したい方は担当者へお問い合わせください」**
+    と明記されている。**後述のとおり API v2 は申請（ワークフロー）が中核**であるため、
+    この一文が API の利用条件に関係する可能性が高い（→ 未確定事項 #1）。
 
-### クラウド契約 API v1（発見・検証済み）
+### API は v1 と v2 が併存する
 
-**API は存在する。** 仕様: <https://api.contract.moneyforward.com/v1/docs/index.html>
-（Swagger 2.0 / `doc.json` / タイトル「マネーフォワード クラウド契約 API」version 1.0）
+**v2 が公式に公開されており、こちらが本命。** v1 は開発者サイトに掲載されていない。
 
-> 開発者サイト（developers.biz.moneyforward.com）の API リファレンスには掲載されておらず、
-> 各製品サイトの「開発者の方」欄にも記載がない。**製品ドキュメントから辿れない位置にある**ため、
-> 提供条件・必要プラン・サポート範囲は Phase 0 でマネーフォワードに確認すること。
-
-- ベースURL: `https://api.contract.moneyforward.com/v1`
-- **認証: `x-email` と `x-token` の2ヘッダ**（OAuth ではない）
-  - 未指定時: `401 {"errors":[{"type":"TYPE_UNAUTHORIZED","code":"CODE_INTERNAL_PARTNER_UNAUTHORIZED","message":"missing x-email in header"}]}`
-  - `x-email` のみ: `missing x-token in header`
-  - 両方指定・無効なトークン: `access token is not active`
-  - → 実挙動で確認済み（2026-08-13）。トークンの発行方法は Phase 0 で確認する。
-
-#### エンドポイント
-
-| メソッド | パス | 用途 |
+| | v1 | **v2** |
 | --- | --- | --- |
-| GET | `/contract_types` | 契約種別一覧 |
-| GET | `/contract_templates` | 契約テンプレート一覧 |
-| GET | `/workflow_templates` | ワークフローテンプレート一覧 |
-| GET | `/document_types` | 書類種別一覧 |
-| GET | `/users` | ユーザー一覧（契約担当者の指定に使う） |
-| GET | `/currencies` | 通貨一覧 |
-| POST | `/contracts` | **下書き契約の作成** |
-| POST | `/contracts/with_template` | テンプレートから下書き契約を作成 |
-| GET | `/contracts` | 下書き契約の一覧（**下書きのみ**） |
-| GET/PUT | `/contracts/{id}` | 下書き契約の取得・更新（**下書きのみ**） |
-| POST | `/contracts/{id}/documents` | **契約書PDFのアップロード**（multipart/form-data） |
-| PUT | `/contracts/{id}/fields` | 契約情報（管理項目）の保存 |
-| POST | `/contracts/{id}/partner_companies` | **相手方と承認者（氏名・メール・会社名・言語・アクセスキー）の登録** |
-| POST | `/contracts/{id}/confirm` | **送信（＝承認者への署名依頼メール送信）** |
-| POST | `/contracts/{id}/remind` | **署名依頼のリマインド送信** |
-| POST | `/contracts/{id}/withdraw` | 取下げ（`comment` 必須） |
-| GET | `/contracts/{id}/certificate` | **合意締結証明書のダウンロード**（`application/octet-stream`） |
-| — | `/multiple_contracts/...` | 複数契約の一括作成・送信・締結（同等の操作群） |
+| ベースURL | `https://api.contract.moneyforward.com/v1` | **`https://api.contract.moneyforward.com/v2`** |
+| 認証 | `x-email` + `x-token` の2ヘッダ | **`Authorization: Bearer`（OAuth 2.0）** |
+| スコープ | — | `mfc/contract/contract.read` / `.write` |
+| 公式ドキュメント | なし | [あり](https://developers.biz.moneyforward.com/docs/partner-api/contract) |
+| Webhook | なし | **あり** |
+| 締結済み契約の取得 | なし | **あり** |
+| 締結済PDFのダウンロード | なし | **あり** |
+| データモデル | 契約を直接操作 | **申請（application）中心** |
 
-`POST /contracts` の必須項目は `contract_type_id`, `name`, `person_in_charge_id`, `workflow_template_id`。
-**ワークフローテンプレートを事前にMF側で作成しておく必要がある。**
-
-`payload.Approver` の必須項目は `email`, `locale`, `name`。任意で `company_name`, `access_key`。
-→ **アクセスキーをAPIから指定できる**ため、発注者への追加認証として自システムで発行した値を渡せる。
-
-#### これで実現できること
-
-Phase 1 の締結フローを**完全に自動化できる**。
+【実測 2026-08-14】認証ヘッダを付けない場合のエラーメッセージが両者で異なり、別系統であることが確認できる。
 
 ```
-下書き作成 (POST /contracts)
-  → 契約書PDFアップロード (POST /contracts/{id}/documents)
-  → 契約情報の保存 (PUT /contracts/{id}/fields)
-  → 相手方・承認者の登録 (POST /contracts/{id}/partner_companies)
-  → 送信 (POST /contracts/{id}/confirm)   ← ここでMFから署名依頼メールが飛ぶ
+GET /v1/contracts → {"message":"missing x-email in header"}
+GET /v2/contracts → {"message":"missing authorization header"}
+```
+
+v1 は `Authorization: Bearer` を渡しても `missing x-email in header` を返す。**v1 に OAuth 経路はない。**
+
+> **v1 は設計の前提にしない。** 開発者サイトから辿れず、変更ポリシーもサポート範囲も不明で、
+> v2 の公開により旧世代であることが濃厚になった。以降の記述は v2 を前提とする。
+
+### クラウド契約 API v2
+
+仕様: <https://developers.biz.moneyforward.com/docs/partner-api/contract>（Version 2.0.0）
+
+**認証は OAuth 2.0 の認可コードフローのみ。** 仕様書「はじめに」に明記されている。
+APIキー方式（`/auth/exchange`）には**対応していない**（→ §1.2）。
+
+#### エンドポイント【文書】
+
+| 分類 | メソッド | パス | 用途 |
+| --- | --- | --- | --- |
+| 申請 | GET/POST | `/applications` | 申請の一覧取得・作成 |
+| 申請 | GET/PUT | `/applications/{id}` | 申請の取得・更新 |
+| 申請 | POST | `/applications/{id}/contracts` | 申請に紐づく契約の作成 |
+| 申請 | PUT | `/applications/{id}/contracts/{cid}` | 申請内の特定の契約の更新 |
+| 申請 | PUT | `.../document` `.../fields` | 書類・契約情報の更新 |
+| 申請 | PUT | `.../partner_representatives` | 取引先代表者名の更新 |
+| 申請 | PUT | `.../partner_companies` | 取引先企業の更新 |
+| 申請 | POST | `/applications/{id}/submit` | **申請の提出（＝署名依頼の送信）** |
+| 申請 | POST | `/applications/{id}/remind` | 申請承認のリマインド送信 |
+| 申請 | POST | `/applications/{id}/withdraw` | 申請の取下げ |
+| 申請 | POST | `/applications/search` | 申請の検索 |
+| 申請 | POST | `/applications/with_stamp` | 押印設定付きの申請の作成 |
+| 契約 | GET | `/contracts` | **締結済み契約の一覧**（更新日時の降順） |
+| 契約 | GET | `/contracts/{id}` | **締結済み契約の取得** |
+| 契約 | GET | `/contracts/{id}/document` | **締結済み契約の書面（PDF）のダウンロード** |
+| 契約 | GET | `/contracts/{id}/certificate` | 合意締結証明書のダウンロード |
+| 契約 | POST | `/contracts/search` | 締結済み契約の検索 |
+| Webhook | GET/POST | `/webhooks` | **Webhook の一覧取得・作成** |
+| Webhook | GET | `/webhooks/{id}` | Webhook の取得 |
+| マスタ | GET | `/contract_types` `/document_types` `/currencies` `/users` `/workflow_templates` | 各マスタの一覧 |
+
+参照系は `mfc/contract/contract.read`、更新系（Webhook 作成を含む）は `mfc/contract/contract.write`。
+
+#### v1 時点の制約のうち3つが解消する
+
+docs/03・adr/0002・adr/0004 は v1 の制約を前提に書かれている。**v2 では前提が変わる。**
+
+| # | v1 の制約 | v2 での状況 | 影響 |
+| --- | --- | --- | --- |
+| 1 | Webhook がない | **`POST /webhooks` がある** | **締結状況のポーリング設計が不要**。Cloud Scheduler + Cloud Tasks による定期実行をやめられる（→ [03-architecture.md §1](03-architecture.md)） |
+| 2 | 締結状況を取得できない | **`GET /contracts` `GET /contracts/{id}` `POST /contracts/search`** | 「合意締結証明書の取得可否で締結を判定する」回避策が不要（→ [adr/0002](adr/0002-esign-provider-abstraction.md)） |
+| 3 | 締結済PDF本体を取得できない | **`GET /contracts/{id}/document`** | **[adr/0004](adr/0004-delegate-retention-to-moneyforward.md) の根拠の一つが崩れる。要再検討** |
+| 4 | 関連書類の添付専用エンドポイントがない | 未確認。`.../document` の複数ファイル可否は実データでの検証が必要 | 受領図面は契約書PDFへ結合する方針を当面維持 |
+| 5 | 署名画面の制御はできない | 変わらず。リダイレクト指定のパラメータはない | 決済は自サイトで完結させる（→ [02-business-flow.md §2.5](02-business-flow.md)） |
+| 6 | 認証が `x-email`（個人）に紐づく | **OAuth では非該当。**「認可は**事業者単位**で行われるため、連携を設定した担当者が**異動・退職してもAPI連携は停止しません**」【文書】 | **API専用ユーザーは不要**。代わりに「不要な連携が残らないよう定期的に棚卸しする」運用を入れる |
+| 7 | エラー形式が仕様と実挙動で異なる | v2 も `{"errors":[{type, code, message}]}` 形式【実測】 | エラーハンドリングはこの形式に合わせる |
+
+**制約3の解消は重い。** adr/0004（永続保管をMFに委ねる）は「締結済PDFをAPIで取得できない」ことを
+理由の一つにしていた。取得できる以上、解約・退会時のロックイン（→ [03-architecture.md §6](03-architecture.md) 課題1）を
+自前保管で回避する選択肢が復活する。**この ADR は再検討が必要**（→ adr/0004 の追記）。
+
+#### 締結フロー（v2）
+
+v1 の「契約を直接作る」形から、**申請（application）を組み立てて提出する**形に変わる。
+
+```
+申請の作成 (POST /applications)
+  → 申請に紐づく契約の作成 (POST /applications/{id}/contracts)
+  → 契約書PDFのアップロード (PUT .../document)
+  → 契約情報の保存 (PUT .../fields)          ← 電帳法要件の4項目。必須処理
+  → 取引先企業・代表者の登録 (PUT .../partner_companies, .../partner_representatives)
+  → 申請の提出 (POST /applications/{id}/submit)  ← ここで署名依頼が飛ぶ
   → [発注者がMFの画面で署名]
-  → 合意締結証明書の取得 (GET /contracts/{id}/certificate)
+  → Webhook で締結完了を受信                    ← ポーリング不要
+  → 締結済契約の取得 (GET /contracts/{id})
+  → 書面・証明書のダウンロード (GET /contracts/{id}/document, /certificate)
 ```
 
-`remind` があるため署名の催促を自動化でき、決済のオーソリ期限（約7日）対策として有効。
-`withdraw` があるため締結不成立時に取下げ→決済キャンセルを連動できる。
+**ワークフローテンプレートを事前にMF側で作成しておく必要がある**点は v1 と同じと見られる
+（`GET /workflow_templates` が存在するため）。実データでの確認は Phase 0。
 
-#### ⚠ 残る制約（設計に影響する）
+### 1.2 認証方式は2つあり、クラウド契約は OAuth のみ
 
-| # | 制約 | 影響と対応 |
+マネーフォワード クラウドの API には**APIキー方式**と**OAuth 2.0**があり、
+**対応サービスは完全に独立**している（「互換性はありません」と明記）【文書】。
+
+| | APIキー方式 | OAuth 2.0 |
 | --- | --- | --- |
-| 1 | **Webhook がない** | 締結完了はポーリングで検知する。Cloud Scheduler + Cloud Tasks で定期実行する |
-| 2 | **締結状況を取得するエンドポイントがない** | `presenter.Contract` に status フィールドがなく、`GET /contracts` `GET /contracts/{id}` はいずれも**下書きステータス専用**と明記されている。締結完了の判定は **`GET /contracts/{id}/certificate` が成功するかどうか**で行うのが現実的。Phase 0 で実挙動（未締結時のステータスコード）を検証する |
-| 3 | **締結済PDF本体をダウンロードするエンドポイントがない** | **永続保管をMFに委ねる方針（[adr/0004](adr/0004-delegate-retention-to-moneyforward.md)）により、この制約の影響は小さくなった。** 自システムは参照IDとメタデータだけを持ち、実体はMF側に置く。締結完了の検知には合意締結証明書の取得可否を使う（制約2） |
-| 4 | **関連書類の添付専用のエンドポイントがない** | `POST /contracts/{id}/documents` は「契約書PDFファイルを追加」。受領図面を別ファイルとして添付できるかは未検証。**受領図面は契約書PDFに結合して1つのPDFにする**方針を既定とする。署名対象そのものに図面が含まれるため、「契約時の条件が曖昧にならないように」という要件にはむしろ適合する |
-| 5 | **署名画面の制御はできない** | 従来どおり。決済は自サイトで完結させる（下記） |
-| 6 | 認証が `x-email` に紐づく | 個人ユーザーに紐づく場合、退職・異動でAPIが止まる。**API専用ユーザーを作成して運用する**。認証情報は Secret Manager に置く |
-| 7 | エラー形式が仕様と実挙動で異なる | 仕様の `presenter.Error` は `{code, detail, source, status}` だが、実レスポンスは `{"errors":[{type, code, message, param}]}`。**エラーハンドリングは実レスポンスに合わせる**（仕様を信じない） |
+| 用途 | AIエージェント・自動化スクリプト | 業務アプリケーション |
+| 人の操作 | **不要**（非対話） | **初回の認可操作が必要** |
+| 権限の主体 | **発行したユーザーの権限** | **事業者単位**（個人に依存しない） |
+| 有効期限 | キーは無期限、交換したJWTが1時間 | アクセストークン1時間＋リフレッシュトークン |
+| **クラウド契約** | **非対応** | **対応（唯一の経路）** |
 
-#### 参照した仕様の取得方法
+対応サービスの判定方法【文書】:
 
-仕様は Swagger UI から `doc.json` として取得できる。
-バージョン差分を確認したいときは以下で取得する（リポジトリには含めない）。
+- APIキー: アプリポータルの「APIキー新規登録／編集」画面の**「利用可能サービス」**の選択肢に出るか
+- OAuth: アプリポータルの**ユーザー編集画面の「アプリ連携権限」**の選択肢に出るか
 
-```sh
-curl -s https://api.contract.moneyforward.com/v1/docs/doc.json -o mf-contract-v1.json
+【実測 2026-08-14】当事務所のアプリポータルでは、APIキーの利用可能サービスは
+**「事業者情報」「クラウド連結会計」のみ**でクラウド契約は出ない。
+一方 OAuth の「アプリ連携権限」には**クラウド契約がある**。文書の記載と一致する。
+
+#### 認可サーバー【実測 2026-08-14】
+
+`https://api.biz.moneyforward.com/.well-known/oauth-authorization-server` が取得できる。
+
 ```
+issuer                            https://api.biz.moneyforward.com
+authorization_endpoint            https://api.biz.moneyforward.com/authorize
+token_endpoint                    https://api.biz.moneyforward.com/token
+registration_endpoint             https://api.biz.moneyforward.com/register
+grant_types_supported             ["authorization_code", "refresh_token"]
+response_types_supported          ["code"]
+code_challenge_methods_supported  ["S256"]
+token_endpoint_auth_methods       ["none", "client_secret_basic", "client_secret_post"]
+scopes_supported                  129種（mfc/contract/contract.read, .write を含む）
+```
+
+- **`client_credentials` は非対応。** 実測で `400 unsupported_grant_type`。
+  完全に無人のサーバ間認証は組めず、**初回は必ず人がブラウザで認可する**。
+- **PKCE(S256) を使う。** 機密クライアントでも付ける。
+- アプリ登録画面で選べるクライアント認証方式は `CLIENT_SECRET_BASIC` / `CLIENT_SECRET_POST` の2つ。
+  メタデータにある `none`（公開クライアント）は**選べない**。
+  → **機密クライアント前提**。SPAから直接叩く構成は想定されていない。Cloud Run の
+  バックエンドから呼ぶ本システムの構成と合致する。
+- リフレッシュトークンのローテーション有無は未確認。**リフレッシュ処理は直列化する**
+  （Cloud Run は複数インスタンスで動くため、並行リフレッシュで新旧が競合する事故を防ぐ）。
+
+### 1.3 【重要】現在の契約では v2 を一切利用できない（403 で確定）
+
+**Phase 0 の最大のブロッカー。実装では回避できない。**
+
+【実測 2026-08-14】アプリポータルでOAuthアプリを登録し、認可コードフロー（PKCE S256）で
+`mfc/contract/contract.read` および `.write` を含むアクセストークンの取得に**成功**した。
+しかし v2 の**参照系・書き込み系のすべてが 403 を返す**。
+
+```
+参照系
+  GET /v2/contract_types /document_types /currencies /users
+      /workflow_templates /contracts /webhooks        → すべて 403
+書き込み系
+  POST /v2/applications                               → 403
+
+同一のアクセストークンで
+  GET https://api.biz.moneyforward.com/v2/tenant      → 200（事業者情報を正常に取得）
+
+403 の本文はいずれも
+  {"errors":[{"type":"TYPE_FORBIDDEN","code":"CODE_FORBIDDEN","message":"forbidden"}]}
+```
+
+**切り分けは完了している。**
+
+| 状態 | レスポンス |
+| --- | --- |
+| ヘッダなし | `401 TYPE_UNAUTHORIZED / missing authorization header` |
+| 無効なトークン | `401 TYPE_UNAUTHORIZED / access token is not active` |
+| **有効なトークン** | **`403 TYPE_FORBIDDEN`** |
+
+遮断が**事業者単位**であることは、次の3点から確定できる。
+
+1. **401 ではなく 403。** トークンは有効と認識されている
+2. **同じトークンで別サービス（事業者情報）は 200。** OAuth の実装・スコープ・トークンの扱いは正しい
+3. **`POST /applications` がボディの中身に関係なく 403。**
+   認可が通っていれば必須項目不足で 400 が返るはずで、それがない
+   → リクエストがハンドラに到達する前に弾かれている
+
+さらに `GET /currencies`（通貨マスタ。事業者データを含まない静的な一覧）まで 403 であることから、
+**エンドポイント単位でも機能単位でもなく、事業者に対する API 提供そのものの単位**で
+閉じられていると判断できる。
+
+#### 契約プランとの関係【実測 2026-08-14】
+
+当事務所は**マネーフォワード クラウドのパーソナルプランのみ**を契約しており、
+クラウド契約の別途契約はない。クラウド契約の設定画面では次がロック表示になっている。
+
+> ワークフロー / 契約管理項目 / IPアドレス制限 / アラート / 監査ログ / ユーザーグループ
+
+**v2 API は申請（ワークフロー）が中核**であり、エンドポイントの過半が申請系である。
+ワークフローがロックされている状態と 403 は符合する。
+
+公開されている料金ページの記載も、API が標準プランに含まれないことを示唆する。
+
+| プラン区分 | 記載内容 |
+| --- | --- |
+| 個人向け（パーソナル系） | 「**社内申請機能を利用しない事業者様におすすめです**」。機能はテンプレート作成・送信/締結・締結済み契約書の検索/ダウンロード。**API の記載なし** |
+| 法人向け（ひとり法人・スモールビジネス・ビジネス） | 「**契約書の送信・締結のみ**がご利用いただけます。社内申請ワークフローなど、その他の機能を利用したい方は担当者へお問い合わせください」 |
+
+加えて、**クラウド契約には API の製品紹介ページが存在しない**
+（クラウド請求書API・クラウド経費API には専用ページがある）。
+
+> **「送信・締結のみ可」は画面操作の話であって、API の利用可否とは別軸である。**
+> 書き込み系（`POST /applications`）も 403 であったことから、これは実測で裏付けられた。
+
+#### 残る確認事項
+
+APIを利用可能にするために何が必要か（プラン／オプション／申し込み）と、その費用。
+**とくに「ワークフロー機能を契約せず、参照系と Webhook だけ利用可能にできるか」**が重要。
+締結の送信自体は手作業でも成立するため、そこだけ開けば締結完了の検知と証跡の取り込みは自動化できる。
+
+→ 未確定事項 #1。**クラウド契約サポート窓口へ問い合わせ中。**
+
+> **なお、この問題は前提そのものが変わる可能性がある。**
+> 建築士法は電磁的方法による契約書面の提供に**電子署名を要求していない**
+> （→ [01-legal-requirements.md §4.2](01-legal-requirements.md)、[adr/0005](adr/0005-electronic-signature-requirement.md)）。
+> 電子契約サービスを使わない構成が成立するなら、本節の問題は消滅する。
 
 ### 署名画面と決済の同居について（要件への回答）
 
@@ -113,13 +260,14 @@ curl -s https://api.contract.moneyforward.com/v1/docs/doc.json -o mf-contract-v1
 署名画面はMFのドメインで提供され、UIの差し込みも遷移先の制御も第三者にはできない。
 API にも署名完了後のリダイレクトURLを指定するパラメータは存在しない。
 
-したがって **決済は自サイト内で完結させ、決済（与信確保）を署名依頼送信（`confirm`）のトリガーとする**。
+したがって **決済は自サイト内で完結させ、決済（与信確保）を署名依頼送信のトリガーとする**。
 → [02-business-flow.md §2.5](02-business-flow.md)
 
 ### 保管の委譲
 
-締結済契約書・合意締結証明書の**永続保管はMFクラウド契約に委ねる**（→ [adr/0004](adr/0004-delegate-retention-to-moneyforward.md)）。
-一次ソースで確認した根拠:
+締結済契約書・合意締結証明書の永続保管をMFに委ねる方針（→ [adr/0004](adr/0004-delegate-retention-to-moneyforward.md)）は、
+**v2 で `GET /contracts/{id}/document` が使えるため再検討が必要**。
+一次ソースで確認した根拠は以下のとおりで、これ自体は変わらない。
 
 - 送信料・保管料0円、件数による課金・上限なし（[料金ページ](https://biz.moneyforward.com/contract/price/)）
 - すべての電子契約に10年間の長期署名（[機能ページ](https://biz.moneyforward.com/contract/function/)）
@@ -129,15 +277,16 @@ API にも署名完了後のリダイレクトURLを指定するパラメータ�
 - 解約すると**無償利用状態に移行し閲覧・出力ができなくなる場合がある**。退会後はダウンロード不可
   （[解約FAQ](https://biz.moneyforward.com/support/plan/faq/te07.html)）
 
-→ `PUT /contracts/{id}/fields` は必須処理。解約時のエクスポート手段は Phase 0-10 で確認する。
+→ 契約情報（`fields`）の保存は必須処理。解約時のエクスポート手段は Phase 0-10 で確認する。
 
 ### プロバイダ抽象化は維持する
 
-API が使えると判明したため、`MoneyForwardApiProvider` が本命の実装になる。
-それでも `EsignProvider` による抽象化は維持する（→ [adr/0002](adr/0002-esign-provider-abstraction.md)）。理由:
+`EsignProvider` による抽象化は維持する（→ [adr/0002](adr/0002-esign-provider-abstraction.md)）。
+理由は v1 前提のときから変わったが、**維持する結論は変わらない**。
 
-- Webhook がなく、締結状況の取得手段も間接的であるため、**この部分の実装は今後変わる可能性が高い**
-- 開発者サイトに掲載されていないAPIであり、変更ポリシーやサポート範囲が不明
+- **v2 に到達できていない**（§1.3）。利用条件が判明するまでフォールバック実装が要る
+- v1 と v2 でデータモデルが根本的に違う（契約直接操作 → 申請中心）。
+  同種の変更が今後も起こりうる
 - テスト用のフェイク実装が必要
 
 ---
@@ -182,6 +331,8 @@ API が使えると判明したため、`MoneyForwardApiProvider` が本命の�
 - v3では過去に一部エンドポイントの提供終了があったため、
   [お知らせ](https://biz.moneyforward.com/support/invoice/news/)を定期的に確認する。
   API変更ポリシーは[こちら](https://developers.biz.moneyforward.com/docs/common/api_change_policy)。
+- 【実測 2026-08-14】アプリポータルの「アプリ連携権限」で当事務所にクラウド請求書は
+  **選択されていない**。クラウド契約と同様、利用開始前に権限付与が必要。
 
 ### 改正法の「報酬の根拠を明らかにする見積書」との関係
 
@@ -222,26 +373,31 @@ MFへは明細行および備考（`note`）として展開する。
 
 ## 5. 未確定事項一覧（Phase 0 で解消）
 
-| # | 事項 | 影響範囲 | 確認先 |
-| --- | --- | --- | --- |
-| 1 | **クラウド契約 API の利用条件**: 必要プラン、`x-token` の発行方法、利用規約、サポート範囲、レート制限、変更ポリシー | 全体設計。API利用可否が決まる | MF営業・サポート |
-| 2 | **未締結時に `GET /contracts/{id}/certificate` が何を返すか** | 締結完了の判定ロジック | 実挙動の検証 |
-| 3 | **`POST /contracts/{id}/documents` に複数ファイルを追加できるか** | 受領図面を別ファイル添付にするか、契約書PDFへ結合するか | 実挙動の検証 |
-| 4 | **締結済PDF本体の取得手段**（APIにエンドポイントがない） | 自システムでの保管方法 | MF・実挙動の検証 |
-| 5 | `x-email` が個人ユーザーに紐づくか（退職・異動時の失効リスク） | API専用ユーザーの要否 | MF |
-| 6 | 署名依頼メールの文面カスタマイズ可否 | 発注者体験 | MF |
-| 7 | 現在の契約プランで送信・締結機能が使えるか | 即時 | MF |
-| 8 | 電子署名法上の署名方式（事業者署名型／当事者署名型） | 法的効力の説明資料 | MF |
-| 9 | IT重説（ビデオ通話での免許証提示）の適法性 | 重説フローの実装 | 顧問弁護士／建築士事務所協会 |
-| 10 | 電磁的方法の承諾を案件ごとに取るか包括で取るか | 承諾画面の設計 | 顧問弁護士 |
-| 11 | 消費者契約における特商法の適用区分（通信販売／訪問販売） | クーリング・オフ、表示義務 | 顧問弁護士 |
-| 12 | 改正法の**施行期日政令**（実際の施行日）と、施行に伴う政省令改正の内容 | スケジュールと法定必須項目 | 国土交通省の公布を待つ |
-| 13 | **解約・退会時の一括エクスポート手段** | 永続保管をMFに委ねる前提が崩れないか | MF |
-| 14 | `fields` の4項目を入れた場合の電帳法要件の充足（実挙動） | 保存要件 | 実挙動の検証 |
+| # | 事項 | 影響範囲 | 確認先 | 状況 |
+| --- | --- | --- | --- | --- |
+| 1 | **クラウド契約 API v2 の利用条件**: 全エンドポイントが403。必要プラン、別途申し込みの要否、サービス側ユーザー権限、レート制限 | **全体設計。ここが解けないと自動化できない** | MFクラウド契約サポート | **問い合わせ中。最優先** |
+| 2 | 未締結時に締結済み契約の取得系が何を返すか | 締結完了の判定ロジック | 実挙動の検証 | v2で `GET /contracts` が使えるため**設計上は解消**。実挙動は #1 の後 |
+| 3 | 書類の更新に複数ファイルを追加できるか | 受領図面を別ファイル添付にするか、契約書PDFへ結合するか | 実挙動の検証 | 未解決。#1 の後 |
+| 4 | 締結済PDF本体の取得手段 | 自システムでの保管方法 | 実挙動の検証 | **解消（`GET /contracts/{id}/document`）。adr/0004 の再検討が必要** |
+| 5 | 認証が個人ユーザーに紐づくか（退職・異動時の失効リスク） | API専用ユーザーの要否 | — | **解消。** OAuth の認可は事業者単位で個人に依存しない【文書】 |
+| 6 | 署名依頼メールの文面カスタマイズ可否 | 発注者体験 | MF | 未解決 |
+| 7 | 現在の契約プランで送信・締結機能が使えるか | 即時 | MF | #1 に統合 |
+| 8 | 電子署名法上の署名方式（事業者署名型／当事者署名型） | 法的効力の説明資料 | MF | 未解決 |
+| 9 | IT重説（ビデオ通話での免許証提示）の適法性 | 重説フローの実装 | 顧問弁護士／建築士事務所協会 | 未解決 |
+| 10 | 電磁的方法の承諾を案件ごとに取るか包括で取るか | 承諾画面の設計 | 顧問弁護士 | 未解決 |
+| 11 | 消費者契約における特商法の適用区分（通信販売／訪問販売） | クーリング・オフ、表示義務 | 顧問弁護士 | 未解決 |
+| 12 | 改正法の**施行期日政令**（実際の施行日）と、施行に伴う政省令改正の内容 | スケジュールと法定必須項目 | 国土交通省の公布を待つ | 未解決 |
+| 13 | **解約・退会時の一括エクスポート手段** | 永続保管をMFに委ねる前提が崩れないか | MF | 未解決。ただし #4 の解消により**自前保管という代替手段ができた** |
+| 14 | 契約情報の4項目を入れた場合の電帳法要件の充足（実挙動） | 保存要件 | 実挙動の検証 | 未解決。#1 の後 |
+| 15 | **リフレッシュトークンのローテーション有無と有効期限** | トークン更新処理の排他制御 | 実挙動の検証 | 新規。#1 の後 |
+| 16 | **ワークフローテンプレートの事前作成の要否**（v2） | 申請作成の前提条件 | 実挙動の検証 | 新規。#1 の後 |
+| 17 | **アクセスキーをAPIから指定できるか**（v2）。v1 では `payload.Approver` の任意項目として渡せた | 発注者への追加認証（→ [02-business-flow.md §2.6](02-business-flow.md)）。渡せない場合は自システム側の署名付きリンクとワンタイムコードのみで担保する | 実挙動の検証 | 新規。#1 の後 |
 
 **解消済み**: 「見積書の規定が努力義務か義務か」は、改正法本文（令和8年法律第74号 第24条の10）で
 **努力義務**であることを確認した。監督処分の対象にも含まれない（法26条2項1号の列挙外）。
 → [01-legal-requirements.md §1.5](01-legal-requirements.md)
 
-> 2・3・4 は API の利用が可能になった時点でサンドボックスで検証する（Phase 0-1b）。
+> **#1 がすべての前提。** 2・3・14・15・16 は v2 に到達できて初めて検証できる。
 > 仕様書の記述だけでは判断できないため、必ず実挙動を確認すること。
+> #1 が長期化する場合に備え、`ManualMoneyForwardProvider`（手作業フォールバック）の
+> 優先度を上げる（→ [adr/0002](adr/0002-esign-provider-abstraction.md)）。
