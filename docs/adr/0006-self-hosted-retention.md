@@ -1,8 +1,20 @@
 # ADR 0006: 永続保管はシステムで持たず、事務所の手元で行う（ADR 0004 を supersede）
 
-- ステータス: **採用**
+- ステータス: **廃止（superseded）** — ただし**結論と電帳法の整理は [adr/0007](0007-document-preparation-only.md) に引き継がれている**
+- superseded by: [adr/0007](0007-document-preparation-only.md)（2026-08-16）
 - 日付: 2026-08-16
 - supersedes: [adr/0004](0004-delegate-retention-to-moneyforward.md)
+
+> **2026-08-16 追記: 本 ADR は同日中に supersede された。何が変わったかを明確にする。**
+>
+> | 本 ADR の内容 | 現在 |
+> | --- | --- |
+> | **システムは永続保管しない。保管は事務所の手元で行う** | **維持**（[adr/0007](0007-document-preparation-only.md)） |
+> | 電帳法の真実性は**規則4条1項4号（事務処理規程）が唯一の手段**になる | **維持。リリース前の必須項目であることも変わらない** |
+> | 検索要件は小規模事業者の特例で外れる見込み。備えとしてファイル名規則を運用に入れる | **維持** |
+> | `-workspace` の `executed/` に TTL 365日で置き、**引き渡しの猶予**とする | **消滅。** GCS を持たない（[adr/0008](0008-implement-as-portal-tool.md)） |
+> | `archived_at` の記録と**未保管アラート** | **消滅。** 生成したPDFは最初から Drive へ保存されるため、「引き渡し」という中間段階が無い |
+> | `Document.sha256` を残し、相手方のハッシュ照合を成立させる | **任意に降格**（[adr/0007](0007-document-preparation-only.md)） |
 - 関連: [03-architecture.md §4・§6](../03-architecture.md), [adr/0003](0003-object-storage-gcs-over-google-drive.md),
   [adr/0005](0005-electronic-signature-requirement.md)
 

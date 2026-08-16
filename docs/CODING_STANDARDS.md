@@ -1,157 +1,125 @@
 # コード規約
 
-このプロジェクトのコードは、**契約という法的効力を持つ文書**を生成し、**金銭を動かす**。
-バグは「動かない」ではなく「法定記載事項が欠けた契約書を締結してしまった」「二重に課金した」という形で現れる。
-規約はその前提で読むこと。
+このプロジェクトのコードは、**契約という法的効力を持つ文書**を生成する。
+バグは「動かない」ではなく「**法定記載事項が欠けた契約書を作ってしまった**」という形で現れ、
+それは監督処分の対象になる書面である。規約はその前提で読むこと。
+
+> **2026-08-16 全面改訂。** [adr/0008](adr/0008-implement-as-portal-tool.md) により、
+> 実装は**社内ポータル（[portal](https://github.com/min-nano/portal)）のツール**として行う。
+> 独自のモノレポ・TypeScript/Hono・Prisma・Cloud SQL を前提とした記述は削除した。
+> **portal の既存の作法が優先する。** 本書はそこに、契約書という書類の性質から来る
+> 上乗せを書いたものである。
 
 ## 0. 大原則
 
 1. **法令要件はコードで強制する。** 運用でカバーする前提の実装をしない。
-   法定必須項目の検証、重説実施のガード、電磁的方法の承諾チェックは、
-   UIではなく**サーバ側**で必ず実行する。
-2. **監査証跡は消さない。** 契約に関わる状態変化は追記のみ。UPDATE / DELETE で履歴を失わない。
-3. **迷ったら安全側に倒す。** 締結を1回止めるコストより、不備のある契約を1件通すコストの方が高い。
-4. **既存のコードに合わせる。** ここに書かれていない事柄は、周囲のコードの書き方に従う。
+   **ただし、何をコードに載せ何を運用に委ねるかは設計で決めてある**
+   （→ [01-legal-requirements.md §5.4](01-legal-requirements.md)、
+   [adr/0007](adr/0007-document-preparation-only.md)）。
+   **コードに載せると決めたもの**（法定記載事項の検証）は、UIではなく**サーバ側**で必ず実行する。
+2. **迷ったら安全側に倒す。** 書類の生成を1回止めるコストより、
+   記載事項が欠けた契約書を1通作るコストの方が高い。
+3. **義務がないところで止めない。** 安全側に倒すのは「義務があるかもしれない」ときであって、
+   「義務がないと条文で確認できた」ときではない（→ §3.2）。
+4. **既存のコードに合わせる。** ここに書かれていない事柄は、portal の周囲のコードの書き方に従う。
 
 ---
 
 ## 1. 言語・ツール
 
-| 領域 | 採用 |
+**portal の構成に従う。** 新しい言語・フレームワークを持ち込まない。
+
+| 領域 | 採用 | 置き場所 |
+| --- | --- | --- |
+| バックエンド | **Python / FastAPI** → Cloud Run | `backend/app/contract.py` ほか |
+| フロントエンド | **素の Web Components + Vite**（フレームワークなし） | `frontend/src/contract-formatter/` |
+| 計算（報酬算定） | **Rust → wasm** | `core/src/fee*.rs` |
+| 雛形 | **Google ドキュメント**（プレースホルダー置換） | Drive |
+| 設定 | **Firestore**（チャンネルで環境を分ける） | `settings_store` |
+| PDF | Docs API の書き出し ＋ `pypdf` / `pdfminer.six` | `backend/app/pdf_tools.py` |
+| テスト | pytest（backend）／ Rust のユニットテスト（core） | |
+
+**持ち込まないもの**: データベース、オブジェクトストレージ、ORM、ジョブキュー、
+決済SDK、Webhook 受信（→ [03-architecture.md §1](03-architecture.md)）。
+
+### 単一の情報源
+
+| 対象 | 情報源 |
 | --- | --- |
-| 言語 | TypeScript（`strict: true`。フロント・バックとも） |
-| ランタイム | Node.js（LTS） |
-| APIフレームワーク | Hono |
-| バリデーション | Zod |
-| ORM | Prisma |
-| フロントエンド | React + Vite + TanStack Query |
-| テスト | Vitest（＋ Playwright: E2E） |
-| Lint / Format | Biome |
-| パッケージ管理 | pnpm workspaces |
+| フォームの項目・並び・必須条件・雛形のプレースホルダー | **`backend/app/contract_mapping.json`** |
+| 報酬算定の式と告示の別表 | **`core/`（Rust）** |
+| 条文とキーの対応 | **[05-documents.md](05-documents.md)**（本リポジトリ） |
 
-### モノレポ構成
-
-```
-apps/
-  api/          Cloud Run にデプロイする API
-  web/          Firebase Hosting にデプロイする SPA
-packages/
-  domain/       ドメインモデル・法令要件のスキーマ（外部依存を持たない）
-  contracts/    API の型定義（Zodスキーマ。api と web が共有）
-  pdf/          帳票生成
-docs/
-```
-
-- `packages/domain` は **`node:` 以外の外部ライブラリに依存しない**（Zodのみ許可）。
-  法令要件のロジックはここに置き、単体テストで守る。
-- `apps/api` から `apps/web` を import しない。逆も同じ。共有は `packages/` を経由する。
+**画面側に項目定義を写さない。** `/config` が mapping から導出して配信する（portal の作法）。
 
 ---
 
-## 2. TypeScript
+## 2. 命名
 
-- `tsconfig` は `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
-  `noImplicitOverride` を有効にする。
-- **`any` 禁止。** 型が不明な値は `unknown` で受け、Zodで絞る。
-  やむを得ない場合は `// eslint-disable` ではなく理由をコメントし、レビューで合意する。
-- **`as` によるキャスト禁止**（`as const` を除く）。型が合わないのは設計が合っていない兆候。
-- 公開関数の引数・戻り値には明示的に型を書く。推論に任せてよいのはローカル変数まで。
-- `enum` は使わない。`as const` オブジェクト＋ union 型を使う。
-
-```ts
-export const CONTRACT_STATUS = {
-  draft: 'DRAFT',
-  quoteSent: 'QUOTE_SENT',
-  // ...
-} as const
-export type ContractStatus = (typeof CONTRACT_STATUS)[keyof typeof CONTRACT_STATUS]
-```
-
-### 型で不正な状態を作れなくする
-
-契約のステータス遷移や法定必須項目は、実行時チェックだけでなく型でも表現する。
-
-```ts
-// 悪い: どの状態でも締結依頼を送れてしまう
-function requestSignature(contract: Contract): Promise<void>
-
-// 良い: 締結依頼を送れる状態の契約しか渡せない
-function requestSignature(contract: SignatureReadyContract): Promise<void>
-```
-
----
-
-## 3. 命名
-
-- コード上の識別子は**英語**。ドメイン用語は法令上の訳語を統一する（下表）。
-- 変数・関数は `camelCase`、型・クラスは `PascalCase`、定数は `SCREAMING_SNAKE_CASE`。
-- DBのカラム・テーブルは `snake_case`、テーブル名は複数形。
-- 真偽値は `is` / `has` / `can` / `should` で始める。
+- コード上の識別子は**英語**。ドメイン用語は下表に統一する。
+- Python は `snake_case`、Rust は `snake_case`、JS は `camelCase`。
+  **API の JSON は camelCase**（portal の既存のエンドポイントに合わせる）。
+- mapping.json の**キーは `snake_case`**、**ラベルは日本語**（画面にそのまま出る）。
+- 真偽値は `is_` / `has_` / `requires_` で始める。
 - **日本語のコメントは可。** むしろ法令の根拠は日本語で書くこと。
 
 ### 用語対訳（必ずこれを使う）
 
 | 日本語 | コード上の表記 |
 | --- | --- |
-| 設計受託契約 | `designContract` / `design` |
-| 工事監理受託契約 | `constructionSupervisionContract` / `construction_supervision` |
-| 建築主・発注者 | `client` |
+| 設計受託契約 | `design` |
+| 工事監理受託契約 | `construction_supervision` |
+| 建築主・相手方 | `counterparty`（建築主に限る文脈では `building_owner`） |
 | 建築士事務所 | `office` |
-| 管理建築士 | `managingArchitect` |
+| 管理建築士 | `managing_architect` |
 | 建築士 | `architect` |
-| 重要事項説明 | `importantMattersExplanation` |
-| 電磁的方法による交付の承諾 | `electronicDeliveryConsent` |
-| 法定記載事項 | `statutoryTerms` |
-| 相互交付 | `mutualDelivery` |
-| 締結（済） | `execute` / `executed`（`sign` は個々の署名行為に限る） |
-| 手付金 | `deposit` |
-| 前払金 | `advancePayment` |
-| 業務報酬基準 | `feeStandard` |
+| 建築設備士 | `equipment_architect` |
+| 重要事項説明（書） | `important_matters` |
+| 電磁的方法による交付の承諾 | `electronic_delivery_consent` |
+| 法定記載事項 | `statutory_terms` |
+| 相互交付 | `mutual_delivery` |
 | 変更契約 | `amendment` |
+| 再委託 | `subcontract` |
+| 業務報酬基準 | `fee_standard` |
+| 業務報酬内訳書 | `fee_breakdown` |
 
-`contract` は「契約」全般を指すため、電子契約サービス側の書類を指すときは
-`esignDocument` と呼び分ける。
+> **`counterparty` と `building_owner` を混ぜない。**
+> 重要事項説明の要否は「相手方が**建築主**か」で決まる（→ §3.2）。
+> 用語が混ざると、この判定が壊れる。
 
 ---
 
-## 4. 法令要件の実装ルール
+## 3. 法令要件の実装ルール
 
-### 4.1 条文の根拠をコードに書く
+### 3.1 条文の根拠をデータに書く
 
-法令に由来する条件分岐・必須項目には、**必ず条文番号をコメントで残す**。
-改正時にどこを直すべきかを追えるようにするため。
+法令に由来する必須項目には、**根拠条文を mapping に持たせる**。
+コメントではなくデータにするのは、**画面のチェック表とエラーメッセージにそのまま出すため**
+（→ [05-documents.md §7](05-documents.md)）。
 
-```ts
-/**
- * 契約書面の法定記載事項（法22条の3の3第1項・規則17条の38）
- * @see docs/01-legal-requirements.md §2
- */
-export const statutoryContractTermsSchema = z.object({
-  // 法22条の3の3第1項3号: 従事する建築士の氏名・資格区分
-  assignedArchitects: z.array(assignedArchitectSchema).min(1),
-  // 法22条の3の3第1項4号: 報酬の額及び支払の時期
-  feeAmount: z.number().int().positive(),
-  paymentSchedule: z.array(paymentTermSchema).min(1),
-  // ...
-})
+```jsonc
+{
+  "key": "work_period",
+  "label": "設計又は工事監理の実施の期間",
+  "law_ref": "規則17条の38第7号",
+  "required": true,
+  "documents": ["contract"],          // 重説書面には載せない（7号は22条の2の2の引用外）
+  "placeholders": ["{{実施の期間}}"]
+}
 ```
 
-### 4.2 契約書面と重要事項説明書のスキーマを共通化しない
+改正で記載事項が変わったら、**mapping.json と雛形を直す。コードは変えない。**
+
+### 3.2 契約書面と重要事項説明書の必須項目を共通化しない
 
 必須項目セットが異なる（重説の省令事項は規則17条の38の**1号〜6号のみ**）。
-共通部分は別スキーマに切り出して合成する。「だいたい同じだから」で1つにまとめない。
+**「だいたい同じだから」で1つにまとめない**（→ [05-documents.md §1](05-documents.md)）。
 
-```ts
-const commonTerms = z.object({ /* 1号〜6号相当 */ })
+- 1つの `contract_mapping.json` に項目を並べ、各項目が `documents` でどの書類に載るかを持つ
+- **必須検証はその書類の集合に対してのみ行う**
+- **重説書面で規則17条の38第7号・第8号を必須にしてはならない**
 
-export const importantMattersSchema = commonTerms          // 法24条の7
-export const contractFormSchema = commonTerms.extend({     // 法22条の3の3
-  implementationPeriod: periodSchema,   // 規則17条の38第7号
-  scopeOfWork: z.string().min(1),       // 規則17条の38第8号
-})
-```
-
-### 4.2.1 義務の適用条件を「契約種別」だけで判定しない
+### 3.3 義務の適用条件を「契約種別」だけで判定しない
 
 条文ごとに適用の相手方が違う。
 
@@ -159,153 +127,146 @@ export const contractFormSchema = commonTerms.extend({     // 法22条の3の3
 | --- | --- |
 | 書面の相互交付（法22条の3の3第1項） | 「契約の**当事者**は」— 建築主に限らない |
 | 重要事項説明（法24条の7第1項） | 「**建築主と**締結しようとするとき…当該**建築主**に対し」— **建築主に限る** |
-| 書面の交付（法24条の8第1項） | 「当該**委託者**に交付」— 建築主に限らない |
+| 見積書（法24条の10） | 「**設計等の業務**に係る契約」— **調査・鑑定を含む**。書面契約義務より広い |
 
 元請け設計事務所から受託する場合、書面の相互交付は必要だが重要事項説明は不要になる。
-**マスタのフラグ1つに畳まず、判定関数として書く。**
+**フラグ1つに畳まず、判定関数として書く。**
 
-```ts
-/** 重要事項説明の要否（法24条の7第1項: 「建築主と締結しようとするとき」） */
-export function requiresImportantMattersExplanation(
-  type: ContractType,
-  counterparty: { isBuildingOwner: boolean },
-): boolean {
-  return type.mayRequireImportantMatters && counterparty.isBuildingOwner
-}
+```python
+def requires_important_matters(contract_type: str, counterparty_is_building_owner: bool) -> bool:
+    """重要事項説明の要否（法24条の7第1項:「建築主と締結しようとするとき」）"""
+    return contract_type in _MAY_REQUIRE_IMPORTANT_MATTERS and counterparty_is_building_owner
 ```
 
-義務がない場面で締結をブロックしてはならない。**安全側に倒すのは「義務があるかもしれない」ときであって、
-「義務がないと条文で確認できた」ときではない。**
+**義務がない場面で書類の生成を止めてはならない**（→ §0-3）。
 
-### 4.3 締結時点の値をスナップショットする
+### 3.4 努力義務をブロック条件にしない
 
-契約書に印字する値は、マスタを参照するのではなく契約レコードにコピーして固定する。
-事務所名や建築士の登録番号が後から変わっても、締結済み契約書の再生成結果が変わってはならない。
+法24条の10（見積書）は**努力義務であり、監督処分の対象外**である
+（→ [01-legal-requirements.md §1.5](01-legal-requirements.md)）。
+**未作成でも契約書は作れる。警告のみ。**
 
-### 4.4 金額
+### 3.5 印刷・テキスト抽出を禁止しない
 
-- **金額は整数（円）で扱う。** `number` の小数、`float` 型のカラムを使わない。
-- 消費税の計算は税率ごとに区分して集計する（複数税率・非課税・不課税を扱う）。
-- 表示のフォーマットは表示層でのみ行う。ドメイン層は整数のまま扱う。
+規則17条の39第2項1号・22条の2の3第2項1号の「出力することにより書面を作成できること」は
+**法令要件**である。PDF に権限制限をかけない（→ [adr/0007](adr/0007-document-preparation-only.md)）。
+**PDF生成のオプションを変えるときは、この節を読むこと。**
 
----
+### 3.6 印字する値はマスタを参照せず、入力された値を使う
 
-## 5. API 設計
+事務所名・建築士の登録番号は Firestore の共有設定に持つが、**それは初期値である**。
+**契約書に印字するのはフォームに入った値**であり、**その値をPDFの文書情報に埋め込む**
+（→ [03-architecture.md §3](03-architecture.md)）。
+設定を後から変えても、過去の契約書の内容は変わらない。
 
-- パスは複数形の名詞。動詞はHTTPメソッドで表す。
-  例外として状態遷移は `POST /contracts/{id}/actions/request-signature` のように
-  `actions/` 配下に置いてよい。
-- リクエスト・レスポンスは `packages/contracts` の Zod スキーマで定義し、
-  そこから型を導出する。**手書きの `interface` と実行時検証を二重管理しない。**
-- エラーレスポンスは統一形式にする。
+### 3.7 金額
 
-```jsonc
-{
-  "error": {
-    "code": "STATUTORY_TERMS_INCOMPLETE",
-    "message": "契約書面の法定記載事項が不足しています",
-    "details": [{ "field": "assignedArchitects", "reason": "required" }]
-  }
-}
-```
-
-- HTTPステータスは意味に沿って使う。
-  状態遷移の前提を満たさない場合は **409 Conflict**（400 で潰さない）。
-- **金銭・締結に関わるすべての POST は冪等にする。**
-  クライアントが生成した `Idempotency-Key` ヘッダを受け取り、
-  同一キーの再送には同じ結果を返す。決済と締結依頼では必須。
-- Webhook 受信は署名検証 → イベントID重複排除 → 処理、の順を厳守する。
-  処理の途中で失敗したら 5xx を返して再送させる。
+- **金額は整数（円）で扱う。** 浮動小数点を使わない
+- 消費税は税率ごとに区分して集計する
+- **端数処理の位置と方向は設定値**とし、**内訳書に印字する**（→ [06-fee-estimation.md §3](06-fee-estimation.md)）
+- 表示のフォーマットは表示層で行う。計算層は整数のまま扱う
 
 ---
 
-## 6. データベース
+## 4. API 設計
 
-- マイグレーションは Prisma Migrate。**手でDBを触らない。**
-- 破壊的変更（カラム削除・リネーム）は2段階でリリースする（追加 → 移行 → 削除）。
-- 金額は `Int`（円）。日時は `timestamptz` で保存し、**UTCで保存・JSTで表示**する。
-- 契約に関わるテーブルは**論理削除も原則使わない**。
-  取り消しは新しいイベント（`ContractEvent`）として追記する。
-- `contract_events` はアプリケーション用DBロールに INSERT と SELECT のみ許可し、
-  UPDATE / DELETE を権限レベルで禁止する。
-- N+1 を作らない。一覧取得は必要な関連を明示的に読み込む。
+**portal の既存のエンドポイントに揃える**（`/api/tools/<ツール名>/...`）。
 
----
+| メソッド | パス | 用途 |
+| --- | --- | --- |
+| GET | `/api/tools/contract-formatter/config` | フォーム定義（mapping から導出） |
+| GET / PUT | `.../settings` `.../template` | 共有設定・雛形の設定 |
+| GET | `.../core.wasm` | 報酬算定の実装（画面が読む） |
+| POST | `.../documents` | 書類の生成と Drive への保存 |
+| POST | `.../documents/parse` `.../documents/parse-drive` | PDF の読み込み（再編集） |
 
-## 7. ログ・監視
+- エラーは日本語のメッセージで返す。**利用者がそのまま読める文にする**（portal の作法）
+- **必須項目の不足には根拠条文を添える**（→ [05-documents.md §7](05-documents.md)）
 
-- 構造化ログ（JSON）で Cloud Logging に出す。`severity`, `contractId`, `traceId` を必ず含める。
-- **個人情報をログに出さない。** 氏名・住所・メールアドレス・電話番号・建物所在地・
-  アクセストークン・カード情報は禁止。ID とハッシュで追跡する。
-  ロガーは PII フィールド名を自動マスクするラッパーを経由させ、素の `console.log` を禁止する。
-- 例外を握り潰さない。`catch` したら必ず「ログに出す」か「上位に再送出する」かのどちらかを行う。
-- 次の事象はアラート対象:
-  締結依頼の送信失敗、Webhook の連続失敗、決済オーソリの期限切れ間近、
-  法定必須項目の検証エラーが本番で発生（＝ドラフト生成側の不具合）。
+  ```
+  次の項目を入力してください: 報酬の支払の時期（法22条の3の3第1項4号）
+  ```
+- **雛形にプレースホルダーが無い場合は 409。**
+  「雛形のレイアウトが変わった」という前提の食い違いであり、入力の誤りではない
+- アップロードのサイズ上限を設ける（portal のPDFツールと同じ 20MB）
 
 ---
 
-## 8. テスト
+## 5. ログ
 
-- **必ずテストを書く対象**（レビューで通さない基準にする）
-  - 法定記載事項のバリデーション（`packages/domain`）
-  - **義務の適用条件**（相手方が建築主か否かで重説の要否が変わること。両ケースを固定する）
-  - 契約のステータス遷移（不正な遷移が弾かれること）
-  - 金額・消費税の計算
-  - PDF生成の内容（テキスト抽出して法定項目の存在を検証する）
-  - Webhook の署名検証と冪等性
-- テスト名は日本語で書いてよい。何を保証しているかが伝わることを優先する。
-
-```ts
-it('重要事項説明の実施記録がない契約は署名依頼に進めない', async () => { /* ... */ })
-```
-
-- 外部サービス（MF・Stripe・Clerk）はアダプタ層で抽象化し、テストではフェイク実装を使う。
-  ネットワークを叩くテストは CI から分離する。
-- E2E は「見積リンクを開いてから締結まで」のハッピーパスを1本、必ず維持する。
+- **個人情報をログに出さない。** 氏名・住所・メールアドレス・電話番号・**建物の所在地**・
+  アクセストークン。ID とファイル ID で追跡する
+- 例外を握り潰さない。`catch`（`except`）したら「ログに出す」か「上位に再送出する」
+- **Google API のエラー応答は、原因の切り分けに要るのでメッセージに添える**（portal の既存の作法）
 
 ---
 
-## 9. 秘匿情報
+## 6. テスト
 
-- **リポジトリに秘密を置かない。** APIキー、クライアントシークレット、署名鍵、
-  Webhook シークレット、本番の顧客データ、実在する図面ファイル。
-- 本番の値は Secret Manager。ローカルは `.env.local`（gitignore 済み）。
-- `.env.example` にキー名だけを列挙し、値はプレースホルダにする。
-- 誤コミットに備えて secret scanning を CI で回す。
+**必ずテストを書く対象**（レビューで通さない基準にする）。
+
+| 対象 | 何を固定するか |
+| --- | --- |
+| **法定記載事項の必須検証** | **必須項目を1つずつ欠いたケースを全件作り、すべて 400 になること** |
+| **書類ごとの必須項目セット** | 重説書面で規則17条の38第7号・第8号が空でも生成でき、1号〜6号が欠ければ 400 になること |
+| **義務の適用条件** | 相手方が建築主でない場合に、重説を要求しないこと（**両ケースを固定する**） |
+| **生成したPDFの中身** | **テキストを抽出し、入力した法定記載事項がすべて含まれること** |
+| **PDFの往復** | 生成したPDFを解析すると、入力が完全に復元されること |
+| **雛形の検証** | 必須項目のプレースホルダーが無い雛形で 409 になること |
+| **報酬算定** | 告示の別表が原文と1つも違わないこと。同じ入力から常に同じ金額が出ること |
+| 端数処理 | 円未満が出ないこと。丸め方向が設定どおりであること |
+
+- テスト名は**日本語で書いてよい**。何を保証しているかが伝わることを優先する
+
+  ```python
+  def test_報酬の支払の時期が空なら契約書を作れない(): ...
+  ```
+- **「検証を通ったこと」で満足しない。** 検証を通っても雛形に印字されていなければ意味がない。
+  **PDFのテキストを突き合わせるところまでをテストにする**
+- ネットワーク（Drive / Docs）はフェイクで置き換える。実際に叩くテストは CI から分離する
 
 ---
 
-## 10. Git
+## 7. 秘匿情報
+
+- **リポジトリに秘密を置かない。** APIキー、クライアントシークレット、
+  **本番の顧客データ、実在する契約書・図面ファイル**
+- 本番の値は環境変数 / Secret Manager。`.env.example` にはキー名だけを書く
+- **テストのフィクスチャに実在の氏名・住所を使わない**
+- 誤コミットに備えて secret scanning を CI で回す
+
+---
+
+## 8. Git
 
 - ブランチ: `feat/...`, `fix/...`, `chore/...`, `docs/...`
-- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/)。
-  本文は日本語で構わない。
+- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/)。本文は日本語で構わない
 
 ```
 feat(contract): 法定記載事項の検証を追加
 
 法22条の3の3第1項および規則17条の38の各号を必須項目として検証する。
-契約種別が設計受託・工事監理受託の場合のみ適用する。
+契約種別が設計受託・工事監理受託で、かつ建築士が行う業務である場合に適用する。
 ```
 
-- PRは小さく保つ。法令要件に関わる変更は、**根拠条文と docs/ の該当節を PR 本文に書く**。
-- `main` への直push禁止。CI（型チェック・Lint・テスト）通過を必須にする。
-- 法令要件のロジック（`packages/domain`）と契約書テンプレートの変更は、
-  管理建築士のレビューを必須とする（CODEOWNERS で設定する）。
+- PRは小さく保つ。**法令要件に関わる変更は、根拠条文と本リポジトリの該当節を PR 本文に書く**
+- `main` への直push禁止。CI 通過を必須にする
+- **`contract_mapping.json` と雛形（Google ドキュメント）の変更は、管理建築士のレビューを必須とする**
 
 ---
 
-## 11. ドキュメント
+## 9. ドキュメント
 
-- 仕様の判断理由は ADR（`docs/adr/`）に残す。「なぜそうしなかったか」を書く。
-- 法令の解釈に関わる判断は、必ず `docs/01-legal-requirements.md` に反映してからコードを書く。
-- 法改正・省令公布のたびに `docs/01-legal-requirements.md` を再検証し、
-  差分を ADR とマイグレーション計画に落とす。
+- 仕様の判断理由は ADR（`docs/adr/`）に残す。**「なぜそうしなかったか」を書く**
+- 法令の解釈に関わる判断は、**必ず [01-legal-requirements.md](01-legal-requirements.md) に
+  反映してからコードを書く**
+- 条文とキーの対応は [05-documents.md](05-documents.md) に集約する。
+  **実装（mapping.json）を先に変えて、こちらを直し忘れない**
+- 法改正・省令公布のたびに [01-legal-requirements.md](01-legal-requirements.md) を再検証する
 
 ---
 
-## 12. 調査の作法（一次ソース主義）
+## 10. 調査の作法（一次ソース主義）
 
 法令・告示・外部APIの仕様は、**必ず一次ソースに当たる。**
 解説記事・業界紙・ブログ・要約サービス・検索結果の要約は、**一次ソースを探す手がかりとしてのみ使う。**
@@ -339,9 +300,13 @@ feat(contract): 法定記載事項の検証を追加
 4. **施行期日を確認する。** 附則第1条。本則と附則で施行日が分かれることが多い。
    経過措置（どの時点の契約に適用されるか）も必ず確認する。
 5. **裏取りできなかったことは「未確認」と書く。** 推測を断定形で書かない。
-   未確認事項は [04-external-services.md](04-external-services.md) の一覧か
+   未確認事項は [04-external-services.md §6](04-external-services.md) の一覧か
    [ROADMAP.md](ROADMAP.md) の Phase 0 に起票する。
 6. **参照した一次ソースのURLと取得日を残す。** PDFはリポジトリに置かず、URLと取得コマンドを書く。
+7. **外部APIは「仕様書にある」で判断しない。**
+   実際にトークンを取って1回叩くまで、使えると判断しない。
+   クラウド契約 API では、有効なトークンで全エンドポイントが 403 だった
+   （→ [04-external-services.md §1.3](04-external-services.md)）。
 
 ### 定期的な再検証
 
@@ -350,6 +315,5 @@ feat(contract): 法定記載事項の検証を追加
 
 - 改正法の施行期日政令が公布されたとき
 - 施行に伴う政省令（施行令・施行規則）が改正されたとき
-- 告示が改正されたとき
+- 告示が改正されたとき（**報酬算定の別表を差し替える**）
 - 年1回（定例）
-

@@ -6,6 +6,15 @@
   [04-external-services.md §1](../04-external-services.md),
   [adr/0002](0002-esign-provider-abstraction.md), [adr/0006](0006-self-hosted-retention.md)
 
+> **2026-08-16 追記: 結論（電子署名を用いない）は維持する。上乗せ措置だけ見直した。**
+>
+> [adr/0007](0007-document-preparation-only.md) で、本 ADR が置いた上乗せ措置のうち
+> **⑤ 編集ロック**と**⑥ PDF/A-2b 出力・再生成の禁止**を取り下げ、
+> **⑦ ハッシュ値の別経路での通知**を任意に降格した。
+> **法令要件である ①承諾 ②出力可能性 ③PDF形式での交付 は変わらない。**
+> 取り下げの理由は [adr/0007](0007-document-preparation-only.md) の
+> 「上乗せ措置の見直し」を参照。
+
 ## 背景
 
 当初、電子契約サービス（マネーフォワード クラウド契約）の利用を前提に設計してきた。
