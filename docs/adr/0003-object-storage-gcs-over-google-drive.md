@@ -1,8 +1,20 @@
 # ADR 0003: アプリケーションのストレージに Google Drive ではなく Cloud Storage を使う
 
-- ステータス: 採用
+- ステータス: **廃止（superseded）**
+- superseded by: [adr/0008](0008-implement-as-portal-tool.md)（2026-08-16）
 - 日付: 2026-08-13
 - 関連: [03-architecture.md §4](../03-architecture.md), [adr/0006](0006-self-hosted-retention.md)
+
+> **2026-08-16 追記: 本 ADR は廃止した。**
+>
+> 本 ADR が Drive を退けた2つ目の理由 —— **アカウントを持たない発注者への期限付き公開
+> （署名付きURL）が Drive では作れない** —— は、[adr/0007](0007-document-preparation-only.md) で
+> 発注者向け画面を落とし、交付をメール添付に変えたことで**消滅した**。
+> 1つ目の理由（誤共有のしやすさ）は保管先の運用ルールで扱う問題であり、
+> ストレージの選定理由としては単独で立たない。
+>
+> **本システムはオブジェクトストレージを持たない。** 生成したPDFは Drive へ保存するか、
+> ブラウザへ返す（→ [adr/0008](0008-implement-as-portal-tool.md)）。
 
 > **2026-08-16 追記: 適用範囲を明確にする。**
 >
