@@ -2,7 +2,22 @@
 
 - ステータス: 採用
 - 日付: 2026-08-13
-- 関連: [03-architecture.md §4](../03-architecture.md)
+- 関連: [03-architecture.md §4](../03-architecture.md), [adr/0006](0006-self-hosted-retention.md)
+
+> **2026-08-16 追記: 適用範囲を明確にする。**
+>
+> 本 ADR が Drive を退けたのは、**システムが扱うストレージ**についてである。
+> [adr/0006](0006-self-hosted-retention.md) により、**確定書面の永続保管は事務所の手元
+> （Drive 等）で行う**ことになったが、これは本 ADR と矛盾しない。
+>
+> | 用途 | 保管先 | 根拠 |
+> | --- | --- | --- |
+> | 発注者への配布 | **Cloud Storage の署名付きURL** | Drive では期限付き公開ができない（下記の理由2） |
+> | システムが扱う作業領域 | **Cloud Storage `-workspace`** | 同上 |
+> | 事務所の手元保管 | **Drive 等** | 配布経路ではないため下記の理由が当たらない |
+>
+> ただし**理由1（誤共有のリスク）は手元保管でも残る。**
+> 保管先フォルダの共有設定は運用ルールで定めること（Phase 0-7）。
 
 ## 背景
 
@@ -65,6 +80,8 @@ Workspace のセキュリティが不足しているわけではない。問題�
 ## 結果
 
 - バケットは用途別に3つ（`-received` / `-generated` / `-executed`）。
+  ※ **バケット構成はその後 2 回変わった。現行は `-workspace` の1つ**
+  （→ [adr/0006](0006-self-hosted-retention.md)、[03-architecture.md §4](../03-architecture.md)）。
   すべて uniform bucket-level access、公開アクセス防止、CMEK。
   `-executed` はバケットロックによる保持ポリシー10年。
 - 発注者へのファイル配布は署名付きURL（有効期限15分）。
