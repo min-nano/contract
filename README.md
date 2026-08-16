@@ -33,7 +33,7 @@
 - バックエンド: TypeScript / Node.js / Hono → Google Cloud Run
 - フロントエンド: TypeScript / React / Vite → Firebase Hosting
 - DB: Cloud SQL (PostgreSQL)
-- オブジェクトストレージ: Cloud Storage（`-workspace` 作業用／`-executed` 永続保管用の2バケット）
+- オブジェクトストレージ: Cloud Storage（`-workspace` のみ。**永続保管はしない**。確定書面は事務所の手元へ引き渡す → [docs/adr/0006](docs/adr/0006-self-hosted-retention.md)）
 - 認証: Clerk（社内ユーザーのみ。発注者は署名付きリンクでアクセス）
 - **電磁的交付: 自前実装。電子署名は用いない**（→ [docs/adr/0005](docs/adr/0005-electronic-signature-requirement.md)）
 - 決済: Stripe
