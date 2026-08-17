@@ -4,6 +4,11 @@
 （→ [adr/0008](adr/0008-implement-as-portal-tool.md)）。
 独自のインフラは持たない。
 
+> **2026-08-17: 実装側の設計は portal に移した。**
+> 土台のどの部品に載せるか・画面・API・`core/` の構成・テスト・ロードマップは
+> [min-nano/portal の docs/contract-formatter.md](https://github.com/min-nano/portal/blob/main/docs/contract-formatter.md)
+> が正である。**本書は「なぜその構成なのか」と、システムが持たないものの記録**として残る。
+
 ---
 
 ## 1. 構成
